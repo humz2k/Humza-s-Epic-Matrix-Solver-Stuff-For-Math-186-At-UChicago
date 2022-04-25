@@ -2,6 +2,7 @@ import numpy as np
 from enum import Enum
 from copy import deepcopy
 import itertools
+import sympy
 
 i = 1.j
 
@@ -20,26 +21,31 @@ def det(m):
 def eigenvalues(m,precision=10):
     return np.around(np.linalg.eigvals(m.array),precision)
 
-def eigenvectors(m,precision=10):
+def eig(m,precision=10):
     vals = eigenvalues(m)
     dim = list(set(list(m.array.shape)))
     assert len(dim) == 1
     dim = dim[0]
-    coords = np.array([[0] * dim] * dim)
-    for j in range(dim):
-        coords[j][j] = 1
+    symbols = sympy.symbols(",".join(list("xyzwghjsmalpe"[:dim])))
+    ans = sympy.Matrix(np.array([np.zeros(dim)]).T)
+    out = {}
     for j in vals:
-        temp = matrix(m.array - np.identity(dim) * j)
-        for k in coords:
-            coord = matrix(np.array([k]).T)
-            print(temp * coord)
-
-
-        #print(np.linalg.solve(temp,)
+        temp = sympy.Matrix(m.array - np.identity(dim) * j)
+        system = temp,ans
+        expr = sympy.linsolve(system,*symbols)
+        f = sympy.lambdify(list(expr.free_symbols),expr)
+        inp = [1] * len(list(expr.free_symbols))
+        vecs = list(f(*inp))
+        for vec in vecs:
+            if j in out:
+                out[j].append(matrix(np.array([list(vec)]).T))
+            else:
+                out[j] = [matrix(np.array([list(vec)]).T)]
+    return vals,out
 
 def str_complex(k,precision=3):
     real = np.real(k)
-    complex = (k-real)*(-i)
+    complex = np.real((k-real)*(-i))
     if complex == 0:
         return ("{:."+str(precision)+"g}").format(real)
     if real == 0:
@@ -51,19 +57,22 @@ def str_complex(k,precision=3):
     return ("{:."+str(precision)+"g}").format(real) + "+" + ("{:."+str(precision)+"g}").format(complex) + "i"
 
 class sig:
-    def __init__(self,vars,expr):
+    def __init__(self,vars,my_expr):
         ranges = (range(j[0],j[1]+1) for j in vars.values())
         self.indexes = list(itertools.product(*ranges))
         self.values = []
         for j in self.indexes:
-            self.values.append(expr(*j))
+            self.values.append(my_expr(*j))
 
     def solve(self,value=None):
         if value == None:
-            assert len(self.values[0].scalers) == 0
-            out = np.zeros_like(self.values[0].array)
+            #assert len(self.values[0].scalers) == 0
+            out = np.zeros_like(self.values[0].array,dtype=np.complex128)
             for j in self.values:
-                out += j.array
+                if len(self.values[0].scalers) == 0:
+                    out += j.array
+                else:
+                    out += j.array * j.scalers[0]()
             return matrix(out)
         else:
             assert len(self.values[0].scalers) == 1
@@ -71,8 +80,9 @@ class sig:
             for j in self.values:
                 values.append(j.array.flatten())
             values = np.array(values)
+            temp_val = value.array.flatten()
             vals = {}
-            for key,val in zip(self.indexes,np.linalg.solve(values,value.array.flatten())):
+            for key,val in zip(self.indexes,np.linalg.solve(values.T,value.array.flatten())):
                 vals[key] = val
             self.values[0].scalers[0].const.vals = vals
             return self.values[0].scalers[0].const
@@ -167,7 +177,7 @@ class expr:
         while traverse2(out) != 0:
             pass
         if self.scaler_var != None:
-            out[0].scalers.append(self.scaler_var([vals[k] for k in self.scaler_var.vars]))
+            out[0].scalers.append(self.scaler_var(*[vals[k] for k in self.scaler_var.vars]))
         out[0].array *= self.scaler
         return out[0]
 
@@ -278,7 +288,7 @@ class constant:
         return expr_object(self,self.vars)
 
 def bracket(v1,v2):
-    return (v1^t) * v2
+    return ((v1^t) * v2).array.flatten()[0]
 
 class matrix:
     def __init__(self,array,print_precision=3):
@@ -312,7 +322,9 @@ class matrix:
         return matrix(self.array - other.array,print_precision=self.print_precision)
 
     def __mul__(self,other):
-        return matrix(np.matmul(self.array,other.array),print_precision=self.print_precision)
+        if isinstance(other,matrix):
+            return matrix(np.matmul(self.array,other.array),print_precision=self.print_precision)
+        return matrix(self.array*other,print_precision=self.print_precision)
 
     def __xor__(self, other):
         if other == T:
