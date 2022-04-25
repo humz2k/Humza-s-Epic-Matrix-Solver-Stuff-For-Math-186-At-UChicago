@@ -1,6 +1,7 @@
 import numpy as np
 from enum import Enum
 from copy import deepcopy
+import itertools
 
 i = 1.j
 
@@ -13,9 +14,75 @@ letters += letters.upper()
 
 var = Enum('var',list(letters))
 
+def det(m):
+    return np.linalg.det(m.array)
+
+def eigenvalues(m,precision=10):
+    return np.around(np.linalg.eigvals(m.array),precision)
+
+def eigenvectors(m,precision=10):
+    vals = eigenvalues(m)
+    dim = list(set(list(m.array.shape)))
+    assert len(dim) == 1
+    dim = dim[0]
+    coords = np.array([[0] * dim] * dim)
+    for j in range(dim):
+        coords[j][j] = 1
+    for j in vals:
+        temp = matrix(m.array - np.identity(dim) * j)
+        for k in coords:
+            coord = matrix(np.array([k]).T)
+            print(temp * coord)
+
+
+        #print(np.linalg.solve(temp,)
+
+def str_complex(k,precision=3):
+    real = np.real(k)
+    complex = (k-real)*(-i)
+    if complex == 0:
+        return ("{:."+str(precision)+"g}").format(real)
+    if real == 0:
+        if complex == 1:
+            return "i"
+        elif complex == -1:
+            return "-i"
+        return ("{:."+str(precision)+"g}").format(complex) + "i"
+    return ("{:."+str(precision)+"g}").format(real) + "+" + ("{:."+str(precision)+"g}").format(complex) + "i"
+
+class sig:
+    def __init__(self,vars,expr):
+        ranges = (range(j[0],j[1]+1) for j in vars.values())
+        self.indexes = list(itertools.product(*ranges))
+        self.values = []
+        for j in self.indexes:
+            self.values.append(expr(*j))
+
+    def solve(self,value=None):
+        if value == None:
+            assert len(self.values[0].scalers) == 0
+            out = np.zeros_like(self.values[0].array)
+            for j in self.values:
+                out += j.array
+            return matrix(out)
+        else:
+            assert len(self.values[0].scalers) == 1
+            values = []
+            for j in self.values:
+                values.append(j.array.flatten())
+            values = np.array(values)
+            vals = {}
+            for key,val in zip(self.indexes,np.linalg.solve(values,value.array.flatten())):
+                vals[key] = val
+            self.values[0].scalers[0].const.vals = vals
+            return self.values[0].scalers[0].const
+
 class expr:
     def __init__(self,expr):
         self.expr = expr.expr
+
+        self.scaler = 1
+        self.scaler_var = None
 
         def traverse(t):
             out = []
@@ -33,6 +100,13 @@ class expr:
             return out
 
         self.vars = list(set(traverse(self.expr)))
+
+    def __mul__(self,other):
+        if isinstance(other,constant):
+            self.scaler_var = other
+        else:
+            self.scaler *= other
+        return self
 
     def __call__(self,*args):
         vals = {}
@@ -92,7 +166,9 @@ class expr:
 
         while traverse2(out) != 0:
             pass
-
+        if self.scaler_var != None:
+            out[0].scalers.append(self.scaler_var([vals[k] for k in self.scaler_var.vars]))
+        out[0].array *= self.scaler
         return out[0]
 
 def new_expr():
@@ -163,12 +239,21 @@ class miter:
 class expr_constant:
     def __init__(self,const,*args):
         self.const,self.args = const,args
+        try:
+            self.val = self.const.val(*self.args)
+        except:
+            self.val = None
 
     def __call__(self):
         return self.const.val(*self.args)
 
     def __str__(self):
-        return self.const.name.name + "(" + ",".join([str(j) for j in self.args]) + ")"
+        val = ""
+        try:
+            val = "=" + str_complex(self.const.val(*self.args))
+        except:
+            pass
+        return self.const.name.name + "(" + ",".join([str(j) for j in self.args]) + ")" + val
 
 class constant:
     def __init__(self,name,vars=None,vals={}):
@@ -181,6 +266,10 @@ class constant:
 
     def __call__(self,*args):
         return expr_constant(self,*args)
+
+    def print_vals(self):
+        for key in self.vals.keys():
+            print(expr_constant(self,*key))
 
     def val(self,*args):
         return self.vals[tuple(args)]
@@ -196,6 +285,7 @@ class matrix:
         self.array = np.array(array)
         self.shape = self.array.shape
         self.print_precision = print_precision
+        self.scalers = []
 
     def dot(self,other):
         if len(self.array.shape) == 2:
@@ -263,10 +353,17 @@ class matrix:
                     longest = len(temp_out[-1])
             out.append(temp_out)
         outstring = "["
+        middle = len(out)//2
         for idx,row in enumerate(out):
             if idx != 0:
                 outstring += " "
             outstring += "[" + ((" {:<"+str(longest)+"} ")* len(row)).format(*row) + "]\n"
+            if idx == middle:
+                if len(self.scalers) != 0:
+                    outstring = outstring[:-1]
+                    for k in self.scalers:
+                        outstring += " * " + str(k)
+                    outstring += "\n"
         outstring = outstring[:-1]
         outstring += "]"
         return outstring

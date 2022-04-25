@@ -10,10 +10,13 @@ e = miter(var.e,{1:e1,2:e2,3:e3})
 
 h = constant(var.h,vars=[var.i,var.j])
 
-test = expr(e(var.i) * (e(var.j)^t))
+expr1 = expr(e(var.i) * (e(var.j)^t)) * h
 
-#print(test.expr)
+sig1 = sig({var.i:(1,3),var.j:(1,3)},expr1)
 
-yee = test(3,3)
+h = sig1.solve(H)
 
-print(yee)
+#h.print_vals()
+
+print(str_complex(det(H)))
+print(eigenvectors(H))
